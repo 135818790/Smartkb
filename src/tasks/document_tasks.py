@@ -4,7 +4,6 @@
           前端轮询 GET /documents/status/{task_id} 查进度。"
 """
 from pathlib import Path
-from celery import current_task
 from src.tasks.celery_app import celery_app
 from src.core.config import DOCUMENTS_DIR
 from src.utils.logger import get_logger

@@ -174,6 +174,8 @@ smartkb/
 │   ├── test_routes.py           # API 集成测试
 │   ├── eval.py                  # RAG 评估脚本
 │   └── test_cases.json          # 20 条评估用例
+├── tutorial/
+│   └── step1_naive_rag.py       # 教学脚本（80 行起点）
 ├── Dockerfile                   # 多阶段构建
 ├── docker-compose.yml           # 三容器编排
 ├── requirements.txt             # 16 个依赖

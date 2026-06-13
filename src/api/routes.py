@@ -4,7 +4,7 @@ Step 6：用 LangGraph Agent 替代手写管线
 面试要点：从"手写检索→生成"升级为"状态机 Agent"——Router→Retrieve→Generate→Verify
 """
 from openai import OpenAI
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 import shutil
@@ -22,7 +22,7 @@ from src.rag.vector_store import VectorStore
 from src.rag.sparse_index import SparseIndex
 from src.rag.reranker import Reranker
 from src.rag.chunker import chunk_document
-from src.rag.generator import generate_answer, generate_answer_stream
+from src.rag.generator import generate_answer_stream
 from src.agent.graph import build_graph
 from src.utils.logger import get_logger
 from collections import defaultdict

@@ -2,8 +2,6 @@
 稀疏向量索引 —— BGE-M3 稀疏输出 = 词汇级精确匹配
 面试要点：稠密向量不认识"E10023"，稀疏向量认识。两者互补，不是替代。
 """
-import numpy as np
-from collections import defaultdict
 
 
 class SparseIndex:

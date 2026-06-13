@@ -19,6 +19,7 @@ chainlit.md
 
 # 测试临时文件
 test_chat.json
+eval_result.json
 
 # 缓存与模型
 models/
@@ -42,3 +43,4 @@ tests/eval_result.json
 # OS
 .DS_Store
 Thumbs.db
+.github/workflows/ragas-eval.yml
