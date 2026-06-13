@@ -148,7 +148,7 @@ class SessionStore:
         self._sessions: dict[str, list[str]] = defaultdict(list)
         self._max = max_history
 
-    def add(self, session_d: str, question: str, answer: str):
+    def add(self, session_id: str, question: str, answer: str):
         """保存一轮对话"""
         self._sessions[session_id].append(f"用户: {question}")
         self._sessions[session_id].append(f"助手: {answer}")
