@@ -3,9 +3,21 @@
 # 查看日志: docker compose logs -f
 # 停止: docker compose down
 
-version: "3.9"
-
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: smartkb-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
   api:
     build: .
     container_name: smartkb-api
@@ -13,20 +25,39 @@ services:
       - "8001:8001"
     environment:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
-      # 持久化：向量库 + 模型，容器重启不丢
       - vector_data:/app/data/vector_store
       - model_cache:/app/models
-      # 挂载文档目录（方便热更新文档）
-      - ./data/documents:/app/data/documents:ro
+      - ./data/documents:/app/data/documents
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 120s  # 模型加载需要时间
+      start_period: 120s
+
+  worker:
+    build: .
+    container_name: smartkb-worker
+    command: celery -A src.tasks.celery_app worker --loglevel=info -P solo
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - vector_data:/app/data/vector_store
+      - model_cache:/app/models
+      - ./data/documents:/app/data/documents
+    restart: unless-stopped
 
 volumes:
   vector_data:
   model_cache:
+  redis_data:

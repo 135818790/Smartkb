@@ -16,3 +16,5 @@ chainlit>=2.0.0                # 前端界面
 python-json-logger>=3.0.0      # 结构化日志
 sse-starlette>=2.0.0           # SSE流式输出
 PyJWT>=2.9.0                   # JWT API鉴权
+celery>=5.4.0                   # 异步任务队列
+redis>=5.2.0                    # Celery broker

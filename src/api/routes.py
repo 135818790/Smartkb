@@ -4,10 +4,13 @@ Step 6：用 LangGraph Agent 替代手写管线
 面试要点：从"手写检索→生成"升级为"状态机 Agent"——Router→Retrieve→Generate→Verify
 """
 from openai import OpenAI
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+import shutil
+import uuid
 
-from src.core.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
+from src.core.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DOCUMENTS_DIR
 from src.core.exceptions import (
     EmbeddingError, VectorStoreError, GenerationError,
     DocumentLoadError, ChunkingError, ConfigurationError,
@@ -23,6 +26,7 @@ from src.rag.generator import generate_answer, generate_answer_stream
 from src.agent.graph import build_graph
 from src.utils.logger import get_logger
 from collections import defaultdict
+from pathlib import Path
 import uuid
 
 logger = get_logger(__name__)
@@ -297,6 +301,94 @@ def chat_stream(req: ChatRequest):
             "X-Accel-Buffering": "no",  # 禁用 nginx 缓冲
         },
     )
+
+
+# --- 文档上传 + 异步处理 ---
+
+
+class UploadResponse(BaseModel):
+    task_id: str
+    filename: str
+    message: str
+
+
+class TaskStatus(BaseModel):
+    task_id: str
+    state: str
+    progress: int = 0
+    step: str = ""
+    result: dict = {}
+
+
+@router.post("/documents/upload", response_model=UploadResponse)
+async def upload_document(file: UploadFile = File(...)):
+    """
+    上传文档文件，后台异步处理。
+    支持 .md 和 .txt 格式。返回 task_id，前端轮询 /documents/status/{task_id} 查进度。
+    面试说法："文件上传走 multipart + Celery 异步管线，前端不等待处理完成。"
+    """
+    from src.tasks.document_tasks import process_document
+
+    if not file.filename:
+        raise HTTPException(status_code=422, detail="文件名不能为空")
+
+    # 只允许文本类型
+    if not (file.filename.endswith(".md") or file.filename.endswith(".txt")):
+        raise HTTPException(status_code=422, detail="仅支持 .md 和 .txt 文件")
+
+    # 保存到 data/documents/ 目录
+    docs_dir = Path(DOCUMENTS_DIR)
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    file_path = docs_dir / file.filename
+
+    try:
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件保存失败: {e}")
+
+    logger.info("file_uploaded", extra={"filename": file.filename, "size_bytes": file_path.stat().st_size})
+
+    # 投递 Celery 异步任务
+    task = process_document.delay(str(file_path), file.filename)
+
+    return UploadResponse(
+        task_id=task.id,
+        filename=file.filename,
+        message=f"文件已上传，后台处理中。可通过 GET /documents/status/{task.id} 查询进度",
+    )
+
+
+@router.get("/documents/status/{task_id}", response_model=TaskStatus)
+def get_task_status(task_id: str):
+    """
+    查询文档处理任务的进度。
+    状态: PENDING → STARTED(含 progress%) → SUCCESS / FAILURE
+    """
+    from celery.result import AsyncResult
+    from src.tasks.celery_app import celery_app
+
+    result = AsyncResult(task_id, app=celery_app)
+
+    response = TaskStatus(
+        task_id=task_id,
+        state=result.state,
+    )
+
+    if result.state == "STARTED" and result.info:
+        info = result.info if isinstance(result.info, dict) else {}
+        response.progress = info.get("progress", 0)
+        response.step = info.get("step", "")
+
+    if result.state == "SUCCESS" and result.result:
+        response.progress = 100
+        response.step = "完成"
+        response.result = result.result if isinstance(result.result, dict) else {}
+
+    if result.state == "FAILURE":
+        response.step = str(result.info) if result.info else "处理失败"
+
+    return response
 
 
 @router.get("/health")
