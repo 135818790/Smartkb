@@ -23,6 +23,7 @@ class AgentState(TypedDict):
     query_sparse: dict         # 问题的稀疏向量
     question_type: str         # simple / complex / out_of_scope
     refined_query: str         # 重试时改写后的问题
+    history: list[str]         # E3: 多轮对话历史
     hits: list[dict]           # 检索到的文档块
     answer: str                # 生成的回答
     verification: str          # pass / fail / uncertain
@@ -115,6 +116,10 @@ def generate_node(state: AgentState, *, llm_client) -> AgentState:
     prompt = f"""你是一个技术文档助手。请严格根据以下参考资料回答用户问题。
 如果参考资料中没有相关信息，请直接说"根据现有文档无法回答"。
 如果信息不完整，指出缺少什么信息。
+注意：如果用户的问题是对上一轮对话的追问，请结合对话历史给出连贯的回答。
+
+对话历史：
+{chr(10).join(state.get('history', []))}
 
 参考资料：
 {context}
