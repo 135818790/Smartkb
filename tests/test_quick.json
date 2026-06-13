@@ -1,0 +1,14 @@
+[
+  {
+    "question": "数据库连接池最大连接数默认值是多少？",
+    "ground_truth": "最大连接数默认值为20"
+  },
+  {
+    "question": "遇到E10023错误码说明什么问题？",
+    "ground_truth": "连接池已耗尽，需要增大max_connections或检查是否有慢查询占用连接"
+  },
+  {
+    "question": "API限流的默认rate和burst是多少？",
+    "ground_truth": "每秒100个请求，突发峰值200个"
+  }
+]
