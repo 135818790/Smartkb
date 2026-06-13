@@ -15,7 +15,9 @@ from src.rag.sparse_index import SparseIndex
 from src.rag.reranker import Reranker
 from src.rag.chunker import chunk_document
 from src.agent.graph import build_graph
+from src.utils.logger import get_logger
 
+logger = get_logger(__name__)
 router = APIRouter()
 
 # 全局单例
@@ -31,18 +33,15 @@ def _ensure_loaded():
     """懒加载：第一次请求时加载模型 + 构建 LangGraph Agent"""
     global _embedder, _store, _sparse_index, _reranker, _agent_graph, _llm_client
     if _embedder is None:
-        print("正在加载 BGE-M3 嵌入模型...")
+        logger.info("loading_models_start")
         _embedder = Embedder()
         _store = VectorStore()
         _sparse_index = SparseIndex()
-        print("正在加载 BGE-Reranker 精排模型...")
         _reranker = Reranker()
+        logger.info("models_loaded", extra={"embedder": "BGE-M3", "reranker": "bge-reranker-v2-m3"})
 
-        # Step 6：创建 LLM 客户端（供 Agent 内部 Router/Generator/Verifier 使用）
         _llm_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
-        # 构建 LangGraph Agent
-        print("正在构建 LangGraph Agent...")
         _agent_graph = build_graph(
             llm_client=_llm_client,
             embedder=_embedder,
@@ -50,33 +49,14 @@ def _ensure_loaded():
             sparse_index=_sparse_index,
             reranker=_reranker,
         )
-        print("Agent 构建完成")
+        logger.info("agent_graph_built")
 
         if _store.is_empty:
-            print("向量库为空，正在导入文档...")
-            documents = load_documents()
-
-            all_chunks = []
-            for doc in documents:
-                chunks = chunk_document(doc)
-                all_chunks.extend(chunks)
-                print(f"  {doc['title']}: {len(chunks)} 块")
-
-            chunk_texts = [c["content"] for c in all_chunks]
-
-            print(f"正在为 {len(all_chunks)} 个块计算稠密+稀疏向量...")
-            dense_embeddings, sparse_vectors = _embedder.encode_both(chunk_texts)
-
-            _store.add_documents(all_chunks, dense_embeddings)
-            _sparse_index.add(all_chunks, sparse_vectors)
-
-            print(f"已导入 {len(documents)} 篇文档 → {len(all_chunks)} 个块")
-            print(f"  稠密路径: ChromaDB ({len(dense_embeddings)} 条)")
-            print(f"  稀疏路径: 内存索引 ({len(sparse_vectors)} 条, {len(_sparse_index._vocab)} 词)")
+            _import_documents()
         else:
-            print(f"ChromaDB 已有 {_store._collection.count()} 条稠密向量，跳过导入")
+            logger.info("vector_store_non_empty", extra={"count": _store._collection.count()})
             if _sparse_index.is_empty:
-                print("稀疏索引为空，从 ChromaDB 重建...")
+                logger.info("sparse_index_rebuilding")
                 documents = load_documents()
                 all_chunks = []
                 for doc in documents:
@@ -85,7 +65,36 @@ def _ensure_loaded():
                 chunk_texts = [c["content"] for c in all_chunks]
                 _, sparse_vectors = _embedder.encode_both(chunk_texts)
                 _sparse_index.add(all_chunks, sparse_vectors)
-                print(f"稀疏索引已重建 ({len(sparse_vectors)} 条)")
+                logger.info("sparse_index_rebuilt", extra={"vectors": len(sparse_vectors)})
+
+
+def _import_documents():
+    """导入文档：加载 → 分块 → 编码 → 存入 ChromaDB 和稀疏索引"""
+    logger.info("document_import_start")
+    documents = load_documents()
+
+    all_chunks = []
+    for doc in documents:
+        chunks = chunk_document(doc)
+        all_chunks.extend(chunks)
+        logger.debug("document_chunked", extra={"title": doc["title"], "chunks": len(chunks)})
+
+    chunk_texts = [c["content"] for c in all_chunks]
+    dense_embeddings, sparse_vectors = _embedder.encode_both(chunk_texts)
+
+    _store.add_documents(all_chunks, dense_embeddings)
+    _sparse_index.add(all_chunks, sparse_vectors)
+
+    logger.info(
+        "document_import_done",
+        extra={
+            "documents": len(documents),
+            "chunks": len(all_chunks),
+            "dense_count": len(dense_embeddings),
+            "sparse_count": len(sparse_vectors),
+            "vocab_size": len(_sparse_index._vocab),
+        },
+    )
 
 
 # --- 请求/响应模型 ---
@@ -109,14 +118,9 @@ class ChatResponse(BaseModel):
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    """
-    Step 6 核心接口：
-    从手写 pipeline → LangGraph Agent 状态机。
-    Router 判断问题类型 → Retrieve → Generate → Verify（Self-RAG）
-    """
+    """核心接口：用户问问题，系统返回答案 + 引用来源"""
     _ensure_loaded()
 
-    # Step 6：构造初始状态，交给 Agent 状态机执行
     initial_state = {
         "question": req.question,
         "query_dense": _embedder.encode([req.question])[0],
@@ -129,12 +133,21 @@ def chat(req: ChatRequest):
         "retry_count": 0,
     }
 
-    # 状态机执行——Agent 自己决定 Router→Retrieve→Generate→Verify 的流转
     final_state = _agent_graph.invoke(initial_state)
 
-    # 从最终状态提取结果
     answer = final_state.get("answer", "")
     hits = final_state.get("hits", [])
+
+    logger.info(
+        "chat_completed",
+        extra={
+            "question": req.question[:80],
+            "question_type": final_state.get("question_type", ""),
+            "verification": final_state.get("verification", ""),
+            "retry_count": final_state.get("retry_count", 0),
+            "hits_count": len(hits),
+        },
+    )
 
     sources = [
         SourceDoc(title=h["title"], score=h["score"], snippet=h["content"][:500])

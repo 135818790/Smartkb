@@ -1,11 +1,13 @@
 """
 混合检索器 —— 稠密 + 稀疏双路召回 → RRF 融合 → Reranker 精排
-面试必问：为什么双路？RRF 怎么融合的？Reranker 有必要吗？
 """
 from src.core.config import TOP_K, HYBRID_TOP_K, RRF_K
 from src.rag.vector_store import VectorStore
 from src.rag.sparse_index import SparseIndex
 from src.rag.reranker import Reranker
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def retrieve(
@@ -40,7 +42,7 @@ def retrieve(
     try:
         final = reranker.rerank(query, merged, top_k=top_k)
     except Exception as e:
-        print(f"[警告] Reranker 精排失败 ({e})，降级为 RRF 直接结果")
+        logger.warning("reranker_failed_fallback", extra={"error": str(e)})
         final = merged[:top_k]
 
     return final
