@@ -1,35 +1,35 @@
 """
 文档分块器 —— 语义分块，按段落切分，小块合并
-面试要点：分块策略直接影响检索质量。太大→噪声多，太小→语义不完整。
 """
 import re
 from src.core.config import CHUNK_SIZE, CHUNK_OVERLAP
+from src.core.exceptions import ChunkingError
 
 
 def chunk_document(document: dict) -> list[dict]:
     """
     将一篇文档切成多个小块。每块保留源文档信息。
-    输入: {"title": "xxx", "content": "正文..."}
-    输出: [{"title": "xxx", "chunk_index": 0, "content": "第0块..."}, ...]
     """
     title = document["title"]
-    text = document["content"]
+    text = document.get("content", "")
 
-    # 第一步：按段落切分（空行 = 段落边界）
-    paragraphs = _split_paragraphs(text)
+    if not text:
+        return []
 
-    # 第二步：合并短段落，直到接近目标大小
-    chunks = _merge_paragraphs(paragraphs, CHUNK_SIZE, CHUNK_OVERLAP)
+    try:
+        paragraphs = _split_paragraphs(text)
+        chunks = _merge_paragraphs(paragraphs, CHUNK_SIZE, CHUNK_OVERLAP)
 
-    # 第三步：每块带上源文档信息
-    result = []
-    for i, chunk_text in enumerate(chunks):
-        result.append({
-            "title": title,
-            "chunk_index": i,
-            "content": chunk_text,
-        })
-    return result
+        result = []
+        for i, chunk_text in enumerate(chunks):
+            result.append({
+                "title": title,
+                "chunk_index": i,
+                "content": chunk_text,
+            })
+        return result
+    except Exception as e:
+        raise ChunkingError(f"文档分块失败: {title}", details={"title": title, "text_len": len(text)}, cause=e)
 
 
 def _split_paragraphs(text: str) -> list[str]:

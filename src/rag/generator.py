@@ -1,13 +1,19 @@
 """
 生成器 —— 拼 Prompt + 调 DeepSeek API（支持流式和非流式）
-面试要点：Prompt 模板设计是 RAG 核心工程实践，streaming 是用户体验关键
 """
 from typing import Generator
 from openai import OpenAI
 from src.core.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from src.core.exceptions import GenerationError, ConfigurationError
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _get_client() -> OpenAI:
+    if not DEEPSEEK_API_KEY:
+        raise ConfigurationError("DeepSeek API Key 未配置，请检查 .env 文件")
+    return OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
 
 def _build_prompt(query: str, retrieved_docs: list[dict], history: list[str] = None) -> str:
@@ -41,13 +47,16 @@ def _build_prompt(query: str, retrieved_docs: list[dict], history: list[str] = N
 def generate_answer(query: str, retrieved_docs: list[dict], history: list[str] = None) -> str:
     """非流式：检索结果 + 用户问题 → LLM 生成回答（一次性返回）"""
     prompt = _build_prompt(query, retrieved_docs, history)
-    client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
-    response = client.chat.completions.create(
-        model=DEEPSEEK_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-    )
-    return response.choices[0].message.content
+    try:
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        raise GenerationError("LLM 生成回答失败", details={"query": query[:50]}, cause=e)
 
 
 def generate_answer_stream(
@@ -59,16 +68,18 @@ def generate_answer_stream(
               用户感知延迟从 5-10 秒降到 500ms 首字。"
     """
     prompt = _build_prompt(query, retrieved_docs, history)
-    client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+    try:
+        client = _get_client()
+        logger.info("stream_start", extra={"query_len": len(query), "docs": len(retrieved_docs)})
 
-    logger.info("stream_start", extra={"query_len": len(query), "docs": len(retrieved_docs)})
-
-    stream = client.chat.completions.create(
-        model=DEEPSEEK_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        stream=True,
-    )
+        stream = client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            stream=True,
+        )
+    except Exception as e:
+        raise GenerationError("LLM 流式生成失败", details={"query": query[:50]}, cause=e)
 
     token_count = 0
     for chunk in stream:

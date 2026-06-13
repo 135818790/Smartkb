@@ -4,10 +4,15 @@ Step 6：用 LangGraph Agent 替代手写管线
 面试要点：从"手写检索→生成"升级为"状态机 Agent"——Router→Retrieve→Generate→Verify
 """
 from openai import OpenAI
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src.core.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
+from src.core.exceptions import (
+    EmbeddingError, VectorStoreError, GenerationError,
+    DocumentLoadError, ChunkingError, ConfigurationError,
+)
+from src.core.auth import create_token
 from src.rag.document_loader import load_documents
 from src.rag.embedder import Embedder
 from src.rag.vector_store import VectorStore
@@ -23,6 +28,9 @@ import uuid
 logger = get_logger(__name__)
 router = APIRouter()
 
+# 公开路径——无需 JWT
+_PUBLIC_PATHS = {"/health", "/login", "/docs", "/openapi.json"}
+
 # 全局单例
 _embedder = None
 _store = None
@@ -36,12 +44,15 @@ def _ensure_loaded():
     """懒加载：第一次请求时加载模型 + 构建 LangGraph Agent"""
     global _embedder, _store, _sparse_index, _reranker, _agent_graph, _llm_client
     if _embedder is None:
-        logger.info("loading_models_start")
-        _embedder = Embedder()
-        _store = VectorStore()
-        _sparse_index = SparseIndex()
-        _reranker = Reranker()
-        logger.info("models_loaded", extra={"embedder": "BGE-M3", "reranker": "bge-reranker-v2-m3"})
+        try:
+            logger.info("loading_models_start")
+            _embedder = Embedder()
+            _store = VectorStore()
+            _sparse_index = SparseIndex()
+            _reranker = Reranker()
+            logger.info("models_loaded", extra={"embedder": "BGE-M3", "reranker": "bge-reranker-v2-m3"})
+        except Exception as e:
+            raise EmbeddingError("嵌入模型或向量存储加载失败", details={"error": str(e)}, cause=e)
 
         _llm_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
@@ -100,6 +111,31 @@ def _import_documents():
     )
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+@router.post("/login", response_model=LoginResponse)
+def login(req: LoginRequest):
+    """
+    登录获取 JWT token。
+    生产环境：验证数据库用户密码。开发环境：接受任意凭据。
+    面试说法：JWT 无状态验证，不查数据库，水平扩展无瓶颈。
+    """
+    # 开发简化版——生产环境替换为数据库验证
+    if not req.username or not req.password:
+        raise HTTPException(status_code=422, detail="用户名和密码不能为空")
+    token = create_token(req.username)
+    logger.info("user_logged_in", extra={"username": req.username})
+    return LoginResponse(access_token=token)
+
+
 # --- 会话管理（企业生产用 Redis，MVP 用内存） ---
 
 class SessionStore:
@@ -108,7 +144,7 @@ class SessionStore:
         self._sessions: dict[str, list[str]] = defaultdict(list)
         self._max = max_history
 
-    def add(self, session_id: str, question: str, answer: str):
+    def add(self, session_d: str, question: str, answer: str):
         """保存一轮对话"""
         self._sessions[session_id].append(f"用户: {question}")
         self._sessions[session_id].append(f"助手: {answer}")

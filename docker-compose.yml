@@ -1,0 +1,32 @@
+# SmartKB docker-compose.yml
+# 启动: docker compose up -d
+# 查看日志: docker compose logs -f
+# 停止: docker compose down
+
+version: "3.9"
+
+services:
+  api:
+    build: .
+    container_name: smartkb-api
+    ports:
+      - "8001:8001"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    volumes:
+      # 持久化：向量库 + 模型，容器重启不丢
+      - vector_data:/app/data/vector_store
+      - model_cache:/app/models
+      # 挂载文档目录（方便热更新文档）
+      - ./data/documents:/app/data/documents:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s  # 模型加载需要时间
+
+volumes:
+  vector_data:
+  model_cache:

@@ -5,6 +5,7 @@ from src.core.config import TOP_K, HYBRID_TOP_K, RRF_K
 from src.rag.vector_store import VectorStore
 from src.rag.sparse_index import SparseIndex
 from src.rag.reranker import Reranker
+from src.core.exceptions import RerankerError, EmptyRetrievalError
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)

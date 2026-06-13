@@ -1,0 +1,36 @@
+# SmartKB .dockerignore
+# 减小构建上下文，加速 docker build
+
+# 虚拟环境（容器内自己装）
+venv/
+.venv/
+
+# Git
+.git/
+.gitignore
+
+# 缓存
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 运行时数据（容器启动时重建或挂载 volume）
+data/vector_store/
+
+# 模型（运行时下载或挂载 volume）
+models/
+
+# IDE
+.idea/
+.vscode/
+
+# 环境变量（docker-compose 注入）
+.env
+
+# 测试文件
+test_chat.json
+tests/eval_result.json
+
+# 文档
+README.md
+LICENSE
