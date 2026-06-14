@@ -394,3 +394,35 @@ def get_task_status(task_id: str):
 @router.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# --- Function Calling 演示 ---
+
+class ToolsChatResponse(BaseModel):
+    answer: str
+    tool_calls_made: int
+    reasoning: str
+
+
+@router.post("/chat/tools", response_model=ToolsChatResponse)
+def chat_with_tools_demo(req: ChatRequest):
+    """
+    Function Calling 演示 —— LLM 自己决定是否调工具、调哪个。
+    面试说法："不是硬编码 if-else 调用链，LLM 根据 tool schema 自主决策。"
+    """
+    _ensure_loaded()
+
+    from src.agent.tools import chat_with_tools, ToolExecutor
+
+    executor = ToolExecutor(
+        store=_store,
+        sparse_index=_sparse_index,
+        embedder=_embedder,
+    )
+
+    result = chat_with_tools(req.question, executor)
+    return ToolsChatResponse(
+        answer=result["answer"],
+        tool_calls_made=result["tool_calls_made"],
+        reasoning=result["reasoning"],
+    )

@@ -47,12 +47,16 @@ async def auth_and_trace_middleware(request: Request, call_next):
                 from src.core.auth import verify_token, get_token_from_header
                 token = get_token_from_header(auth_header)
                 verify_token(token)
-                # token 有效，放行
-                response = await call_next(request)
             except ValueError as e:
                 response = JSONResponse(status_code=401, content={"detail": str(e)})
+                duration_ms = round((time.time() - start) * 1000, 1)
+                return response
             except Exception:
                 response = JSONResponse(status_code=401, content={"detail": "token 无效或已过期，请重新登录"})
+                duration_ms = round((time.time() - start) * 1000, 1)
+                return response
+            # token 有效，放行
+            response = await call_next(request)
     else:
         response = await call_next(request)
 

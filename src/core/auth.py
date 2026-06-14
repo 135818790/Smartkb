@@ -12,7 +12,7 @@ import time
 import jwt
 
 # 密钥（生产环境从环境变量或密钥管理服务获取）
-JWT_SECRET = os.getenv("JWT_SECRET", "smartkb-dev-secret-key")
+JWT_SECRET = os.getenv("JWT_SECRET", "smartkb-dev-secret-key-must-be-32-bytes-long!")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_SECONDS = 3600 * 8  # 8 小时
 
